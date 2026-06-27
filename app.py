@@ -3,7 +3,6 @@
 
 from flask import Flask, render_template_string, request, jsonify
 from api_validator import ApiKeyValidator
-import webbrowser
 import threading
 import os
 
@@ -428,15 +427,42 @@ def api_clear_unavailable():
 
 
 def open_browser():
+    import webbrowser
     webbrowser.open('http://localhost:8899')
 
 if __name__ == '__main__':
-    print("\n" + "=" * 50)
-    print("  API Key 管理器")
-    print("  http://localhost:8899")
-    print("=" * 50 + "\n")
-    threading.Timer(1.5, open_browser).start()
-    app.run(host='127.0.0.1', port=8899, debug=False)
+    import sys
+    
+    # 检查是否是Electron模式（不需要打开浏览器）
+    no_window = '--no-window' in sys.argv
+    
+    if not no_window:
+        import time
+        import webview
+        
+        # 启动Flask服务
+        flask_thread = threading.Thread(target=lambda: app.run(host='127.0.0.1', port=8899, debug=False))
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        # 等待Flask启动
+        time.sleep(1.5)
+        
+        # 创建独立窗口
+        window = webview.create_window(
+            'API Key 管理器',
+            'http://127.0.0.1:8899',
+            width=1200,
+            height=800,
+            min_size=(800, 600),
+            resizable=True,
+            text_select=True
+        )
+        webview.start()
+    else:
+        # Electron模式，只启动Flask
+        print("Flask服务启动中...")
+        app.run(host='127.0.0.1', port=8899, debug=False)
 
 # Vercel handler
 handler = app
