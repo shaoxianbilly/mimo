@@ -7,4 +7,5 @@ services:
       - "8899:8899"
     volumes:
       - ./data:/app/data
+      - ./api_keys.json:/app/api_keys.json
     restart: unless-stopped
