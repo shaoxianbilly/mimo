@@ -42,6 +42,10 @@ DEFAULT_URLS = {
 # 默认模型
 DEFAULT_MODEL = "mimo-v2.5-pro"
 
+# OmniRoute配置
+DEFAULT_OMNIROUTE_URL = "http://localhost:20128"
+DEFAULT_OMNIROUTE_API_KEY = ""  # OmniRoute的管理API Key
+
 
 @dataclass
 class ApiKeyInfo:
@@ -412,6 +416,117 @@ class ApiKeyValidator:
         if to_delete:
             self._save_keys()
         return len(to_delete)
+    
+    def export_to_omniroute(self, omniroute_url: str = DEFAULT_OMNIROUTE_URL, 
+                            omniroute_api_key: str = DEFAULT_OMNIROUTE_API_KEY) -> Tuple[int, List[str]]:
+        """
+        将可用的Key导出到OmniRoute
+        每个Key创建两个配置：OpenAI兼容 + Anthropic兼容
+        
+        去重策略：检查OmniRoute中是否已存在相同的Key，跳过重复
+        
+        返回: (成功数, 错误列表)
+        """
+        # 只导出可用的Key
+        available_keys = [k for k, v in self.keys.items() if v.status == "available"]
+        
+        if not available_keys:
+            return 0, ["没有可用的Key"]
+        
+        # 获取OmniRoute中已存在的Key
+        existing_keys = set()
+        try:
+            headers = {"Content-Type": "application/json"}
+            if omniroute_api_key:
+                headers["Authorization"] = f"Bearer {omniroute_api_key}"
+            
+            resp = requests.get(
+                f"{omniroute_url}/api/providers",
+                headers=headers,
+                timeout=10
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                for conn in data.get('connections', []):
+                    # 提取Key的前20位作为去重标识
+                    api_key = conn.get('apiKey', '')
+                    if api_key:
+                        existing_keys.add(api_key[:20])
+        except Exception as e:
+            return 0, [f"无法连接OmniRoute: {str(e)}"]
+        
+        success_count = 0
+        skip_count = 0
+        errors = []
+        
+        for key in available_keys:
+            info = self.keys[key]
+            
+            # 检查是否已存在（用前20位匹配）
+            if key[:20] in existing_keys:
+                skip_count += 1
+                continue
+            
+            # 确定URL基础路径
+            if 'anthropic' in info.url:
+                base_url = info.url.replace('/anthropic', '')
+            elif '/v1' in info.url:
+                base_url = info.url.replace('/v1', '')
+            else:
+                base_url = info.url.rstrip('/')
+            
+            # 区域名
+            region_name = {"sgp": "SGP", "cn": "CN"}.get(info.region, "Unknown")
+            
+            # 创建两个配置：OpenAI兼容 + Anthropic兼容
+            configs = [
+                {
+                    "url": f"{base_url}/v1",
+                    "suffix": "OpenAI",
+                    "provider": "xiaomi-mimo"
+                },
+                {
+                    "url": f"{base_url}/anthropic",
+                    "suffix": "Anthropic",
+                    "provider": "xiaomi-mimo"
+                }
+            ]
+            
+            for config in configs:
+                try:
+                    headers = {"Content-Type": "application/json"}
+                    if omniroute_api_key:
+                        headers["Authorization"] = f"Bearer {omniroute_api_key}"
+                    
+                    name = f"MIMO-{region_name}-{config['suffix']}-{key[:8]}"
+                    
+                    payload = {
+                        "provider": config["provider"],
+                        "apiKey": key,
+                        "name": name,
+                        "priority": 1,
+                        "providerSpecificData": {
+                            "baseUrl": config["url"]
+                        }
+                    }
+                    
+                    resp = requests.post(
+                        f"{omniroute_url}/api/providers",
+                        headers=headers,
+                        json=payload,
+                        timeout=10
+                    )
+                    
+                    if resp.status_code in (200, 201):
+                        success_count += 1
+                    else:
+                        errors.append(f"{name}: HTTP {resp.status_code}")
+                        
+                except Exception as e:
+                    errors.append(f"{key[:20]}...: {str(e)}")
+        
+        return success_count, errors, skip_count
 
 
 def main():

@@ -5,6 +5,7 @@ from flask import Flask, render_template_string, request, jsonify
 from api_validator import ApiKeyValidator
 import threading
 import os
+import requests
 
 app = Flask(__name__)
 validator = ApiKeyValidator()
@@ -192,11 +193,65 @@ function clearAll() {
     });
 }
 
+function checkUpdate() {
+    showToast('正在检查更新...');
+    apiCall('check_update', {}).then(function(data) {
+        if (!data.ok) {
+            showToast('检查失败: ' + data.error);
+            return;
+        }
+        if (data.has_update) {
+            if (confirm('发现新版本 ' + data.remote + '，当前版本 ' + data.local + '，是否升级？')) {
+                doUpdate();
+            }
+        } else {
+            showToast('已是最新版本 ' + data.local);
+        }
+    });
+}
+
+function doUpdate() {
+    showToast('正在升级...');
+    apiCall('do_update', {}).then(function(data) {
+        if (data.ok) {
+            if (data.install_type === 'docker') {
+                showToast('Docker容器已重建，版本: ' + data.version);
+            } else {
+                showToast('代码已更新，请手动重启程序');
+            }
+        } else {
+            showToast('升级失败: ' + data.error);
+        }
+    });
+}
+
 function clearUnavailable() {
     if (!confirm('确定清除所有不可用的Key？')) return;
     apiCall('clear_unavailable', {}).then(function(data) {
         refreshList();
         showToast('已清除 ' + data.count + ' 个不可用Key');
+    });
+}
+
+function exportToOmniRoute() {
+    var url = prompt('OmniRoute地址:', 'http://localhost:20128');
+    if (!url) return;
+    var apiKey = prompt('OmniRoute API Key (可留空):', '');
+    
+    apiCall('export_omniroute', {
+        omniroute_url: url,
+        omniroute_api_key: apiKey || ''
+    }).then(function(data) {
+        refreshList();
+        var msg = '新增 ' + data.success + ' 个';
+        if (data.skipped > 0) {
+            msg += '，跳过 ' + data.skipped + ' 个重复';
+        }
+        if (data.errors && data.errors.length > 0) {
+            msg += '，失败 ' + data.errors.length + ' 个';
+            console.log('导出错误:', data.errors);
+        }
+        showToast(msg);
     });
 }
 """
@@ -347,8 +402,10 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="btn-row">
 <button class="btn btn-success" onclick="exportAll()">复制全部可用 Key+URL</button>
 <button class="btn btn-ghost" onclick="exportJson()">复制 JSON</button>
+<button class="btn btn-primary" onclick="exportToOmniRoute()">导出到 OmniRoute</button>
 <button class="btn btn-warning" onclick="clearUnavailable()">清除不可用Key</button>
-<button class="btn btn-warning" onclick="clearAll()" style="margin-left:auto">清空所有Key</button>
+<button class="btn btn-warning" onclick="clearAll()">清空所有Key</button>
+<button class="btn btn-ghost" onclick="checkUpdate()" style="margin-left:auto">检查更新</button>
 </div>
 </div>
 
@@ -425,6 +482,109 @@ def api_clear_unavailable():
     count = validator.clear_unavailable()
     return jsonify({"ok": True, "count": count})
 
+@app.route('/api/check_update', methods=['POST'])
+def api_check_update():
+    """检查是否有新版本"""
+    import json as json_mod
+    try:
+        # 读取本地版本
+        with open('version.json', 'r') as f:
+            local_version = json_mod.load(f).get('version', '0.0.0')
+        
+        # 从GitHub获取远程版本
+        resp = requests.get(
+            'https://raw.githubusercontent.com/shaoxianbilly/mimo/main/version.json',
+            timeout=10
+        )
+        if resp.status_code == 200:
+            remote_version = resp.json().get('version', '0.0.0')
+            has_update = remote_version > local_version
+            return jsonify({
+                "ok": True,
+                "local": local_version,
+                "remote": remote_version,
+                "has_update": has_update
+            })
+        else:
+            return jsonify({"ok": False, "error": "无法获取远程版本"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route('/api/do_update', methods=['POST'])
+def api_do_update():
+    """执行升级（根据安装方式）"""
+    import subprocess
+    import json as json_mod
+    try:
+        # 检测安装方式
+        is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER') == 'true'
+        
+        # 拉取最新代码
+        result = subprocess.run(
+            ['git', 'pull', 'origin', 'main'],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        if result.returncode == 0:
+            # 读取新版本号
+            with open('version.json', 'r') as f:
+                new_version = json_mod.load(f).get('version', 'unknown')
+            
+            if is_docker:
+                # Docker方式：重建容器
+                subprocess.run(['docker-compose', 'down'], capture_output=True)
+                subprocess.run(['docker-compose', 'up', '-d', '--build'], capture_output=True)
+                return jsonify({
+                    "ok": True,
+                    "version": new_version,
+                    "message": "Docker容器已重建",
+                    "install_type": "docker"
+                })
+            else:
+                # 本地方式：需要手动重启
+                return jsonify({
+                    "ok": True,
+                    "version": new_version,
+                    "message": "代码已更新，请手动重启程序",
+                    "install_type": "local"
+                })
+        else:
+            return jsonify({
+                "ok": False,
+                "error": result.stderr
+            })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route('/api/restart', methods=['POST'])
+def api_restart():
+    """重启应用"""
+    import os
+    import sys
+    import subprocess
+    
+    # 延迟1秒后重启
+    def restart_delayed():
+        import time
+        time.sleep(1)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    
+    threading.Thread(target=restart_delayed, daemon=True).start()
+    return jsonify({"ok": True, "message": "正在重启..."})
+
+@app.route('/api/export_omniroute', methods=['POST'])
+def api_export_omniroute():
+    omniroute_url = request.json.get('omniroute_url', 'http://localhost:20128')
+    omniroute_api_key = request.json.get('omniroute_api_key', '')
+    success_count, errors, skip_count = validator.export_to_omniroute(omniroute_url, omniroute_api_key)
+    return jsonify({
+        "ok": True,
+        "success": success_count,
+        "skipped": skip_count,
+        "errors": errors,
+        "total": success_count + len(errors) + skip_count
+    })
+
 
 def open_browser():
     import webbrowser
@@ -433,36 +593,17 @@ def open_browser():
 if __name__ == '__main__':
     import sys
     
-    # 检查是否是Electron模式（不需要打开浏览器）
-    no_window = '--no-window' in sys.argv
+    # 启动Flask
+    print("\n" + "=" * 50)
+    print("  API Key 管理器")
+    print("  http://localhost:8899")
+    print("=" * 50 + "\n")
     
-    if not no_window:
-        import time
-        import webview
-        
-        # 启动Flask服务
-        flask_thread = threading.Thread(target=lambda: app.run(host='127.0.0.1', port=8899, debug=False))
-        flask_thread.daemon = True
-        flask_thread.start()
-        
-        # 等待Flask启动
-        time.sleep(1.5)
-        
-        # 创建独立窗口
-        window = webview.create_window(
-            'API Key 管理器',
-            'http://127.0.0.1:8899',
-            width=1200,
-            height=800,
-            min_size=(800, 600),
-            resizable=True,
-            text_select=True
-        )
-        webview.start()
-    else:
-        # Electron模式，只启动Flask
-        print("Flask服务启动中...")
-        app.run(host='127.0.0.1', port=8899, debug=False)
+    # 自动打开浏览器
+    import threading
+    threading.Timer(1.5, open_browser).start()
+    
+    app.run(host='127.0.0.1', port=8899, debug=False)
 
 # Vercel handler
 handler = app
