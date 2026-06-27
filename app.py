@@ -2,7 +2,9 @@
 """API Key Validator - Mac Web App (Glassmorphism UI)"""
 
 from flask import Flask, render_template_string, request, jsonify
-from api_validator import ApiKeyValidator
+from api_validator import ApiKeyValidator, ApiKeyInfo
+from dataclasses import asdict
+from datetime import datetime
 import threading
 import os
 import requests
@@ -67,14 +69,107 @@ function loadUrls() {
 function pasteValidate() {
     var text = document.getElementById('pasteArea').value.trim();
     if (!text) { showToast('请粘贴内容', 'error'); return; }
-    showLoading('正在提取并验证Key...');
+    
+    // 显示提示
+    showToast('正在提取并验证Key...', 'info');
+    
     apiCall('paste', {text: text}).then(function(data) {
-        hideLoading();
-        showToast('提取到 ' + data.count + ' 个Key，正在刷新列表...', 'success');
+        // 在屏幕中间显示结果
+        showResultModal(data);
         refreshList();
     }).catch(function() {
-        hideLoading();
         showToast('验证失败', 'error');
+    });
+}
+
+function showResultModal(data) {
+    var modal = document.getElementById('resultModal');
+    var content = document.getElementById('resultContent');
+    
+    // 统计各状态数量
+    var stats = {available: 0, rate_limited: 0, unavailable: 0};
+    if (data.results && data.results.length > 0) {
+        data.results.forEach(function(r) {
+            if (stats[r.status] !== undefined) stats[r.status]++;
+        });
+    }
+    
+    var html = '<div class="result-header">提取完成</div>';
+    html += '<div class="result-count">共提取 ' + data.count + ' 个Key</div>';
+    html += '<div class="result-stats">';
+    html += '<span class="stat-success">可用: ' + stats.available + '</span>';
+    html += '<span class="stat-warning">限流: ' + stats.rate_limited + '</span>';
+    html += '<span class="stat-error">不可用: ' + stats.unavailable + '</span>';
+    html += '</div>';
+    
+    if (data.results && data.results.length > 0) {
+        html += '<div class="result-list">';
+        data.results.forEach(function(r, i) {
+            var statusClass = r.status === 'available' ? 'success' : (r.status === 'rate_limited' ? 'warning' : 'error');
+            var statusText = r.status === 'available' ? '可用' : (r.status === 'rate_limited' ? '限流' : '不可用');
+            html += '<div class="result-item ' + statusClass + '">';
+            html += '<span class="result-key">' + r.key.substring(0, 20) + '...</span>';
+            html += '<span class="result-status">' + statusText + '</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    html += '<button class="btn btn-primary" onclick="closeResultModal()" style="margin-top:15px;width:100%">确定</button>';
+    
+    content.innerHTML = html;
+    modal.style.display = 'flex';
+}
+
+function closeResultModal() {
+    document.getElementById('resultModal').style.display = 'none';
+}
+
+function showKeyDetail(key) {
+    apiCall('list').then(function(data) {
+        var keys = data.keys;
+        var keyInfo = null;
+        keys.forEach(function(k) {
+            if (k.key === key) keyInfo = k;
+        });
+        if (!keyInfo) return;
+        
+        var modal = document.getElementById('resultModal');
+        var content = document.getElementById('resultContent');
+        
+        var statusLabel = {available: '可用', rate_limited: '限流中', unavailable: '不可用', in_use: '使用中'};
+        var regionLabel = {sgp: '新加坡', cn: '国内', 'sgp-anthropic': '新加坡A', 'cn-anthropic': '国内A', unknown: '-'};
+        
+        // 评分颜色（无上限，按等级划分）
+        var scoreColor = '#f87171';
+        if (keyInfo.score >= 100) scoreColor = '#34d399';
+        else if (keyInfo.score >= 80) scoreColor = '#6ee7b7';
+        else if (keyInfo.score >= 60) scoreColor = '#fbbf24';
+        else if (keyInfo.score >= 40) scoreColor = '#fb923c';
+        
+        var html = '<div class="result-header">Key 详情</div>';
+        html += '<div class="detail-row"><span class="detail-label">完整Key:</span></div>';
+        html += '<div class="detail-key">' + keyInfo.key + '</div>';
+        html += '<div class="detail-row"><span class="detail-label">区域:</span> <span class="region-tag region-' + keyInfo.region + '">' + (regionLabel[keyInfo.region] || keyInfo.region) + '</span></div>';
+        html += '<div class="detail-row"><span class="detail-label">状态:</span> <span class="badge badge-' + keyInfo.status + '">' + (statusLabel[keyInfo.status] || keyInfo.status) + '</span></div>';
+        html += '<div class="detail-row"><span class="detail-label">评分:</span> <span style="color:' + scoreColor + ';font-weight:700;font-size:18px">' + keyInfo.score + '分</span></div>';
+        html += '<div class="detail-row"><span class="detail-label">延迟:</span> ' + (keyInfo.latency > 0 ? keyInfo.latency + 'ms' : '-') + '</div>';
+        html += '<div class="detail-row"><span class="detail-label">URL:</span> <span class="cell-url">' + (keyInfo.url || '-') + '</span></div>';
+        html += '<div class="detail-row"><span class="detail-label">测试次数:</span> ' + keyInfo.test_count + '</div>';
+        html += '<div class="detail-row"><span class="detail-label">限速次数:</span> ' + keyInfo.rate_limit_count + '</div>';
+        html += '<div class="detail-row"><span class="detail-label">加入时间:</span> ' + (keyInfo.added_at ? new Date(keyInfo.added_at).toLocaleString() : '-') + '</div>';
+        html += '<div class="detail-row"><span class="detail-label">最后测试:</span> ' + (keyInfo.tested_at ? new Date(keyInfo.tested_at).toLocaleString() : '-') + '</div>';
+        
+        html += '<div style="display:flex;gap:10px;margin-top:15px">';
+        html += '<button class="btn btn-primary" onclick="copyText(\'' + keyInfo.key + '\')" style="flex:1">复制Key</button>';
+        if (keyInfo.url) {
+            html += '<button class="btn btn-ghost" onclick="copyText(\'' + keyInfo.key + '\\n' + keyInfo.url + '\')" style="flex:1">复制Key+URL</button>';
+        }
+        html += '</div>';
+        html += '<button class="btn btn-ghost" onclick="closeResultModal()" style="width:100%;margin-top:10px">关闭</button>';
+        
+        content.innerHTML = html;
+        modal.style.display = 'flex';
     });
 }
 
@@ -101,6 +196,14 @@ function refreshList() {
         var regionLabel = {sgp: '新加坡', cn: '国内', 'sgp-anthropic': '新加坡A', 'cn-anthropic': '国内A', unknown: '-'};
         var html = '';
         keys.forEach(function(k, i) {
+            // 评分颜色（无上限，按等级划分）
+            var scoreColor = '#f87171'; // 红色
+            if (k.score >= 100) scoreColor = '#34d399'; // 绿色（优质）
+            else if (k.score >= 80) scoreColor = '#6ee7b7'; // 浅绿色（良好）
+            else if (k.score >= 60) scoreColor = '#fbbf24'; // 黄色（一般）
+            else if (k.score >= 40) scoreColor = '#fb923c'; // 橙色（较差）
+            
+            // 计算入库时长
             var duration = '';
             if (k.added_at) {
                 var added = new Date(k.added_at);
@@ -111,15 +214,20 @@ function refreshList() {
                 else if (diff < 86400) duration = Math.floor(diff/3600) + '小时';
                 else duration = Math.floor(diff/86400) + '天';
             }
+            
+            // 延迟显示
             var latencyStr = k.latency > 0 ? k.latency + 'ms' : '-';
-            var urlBtn = k.url ? '<button class="btn-sm" onclick="copyText(\'' + k.key + '\\n' + k.url + '\')">Key+URL</button>' : '';
+            
+            // 操作按钮
+            var urlBtn = k.url ? '<button class="btn-sm" onclick="copyText(\'' + k.key + '\\n' + k.url + '\')">URL</button>' : '';
+            
             html += '<tr>';
             html += '<td style="color:rgba(255,255,255,0.25)">' + (i + 1) + '</td>';
-            html += '<td><span class="key-text" title="' + k.key + '">' + k.key + '</span></td>';
+            html += '<td><span class="key-text" title="点击查看详情" onclick="showKeyDetail(\'' + k.key + '\')" style="cursor:pointer">' + k.key + '</span></td>';
             html += '<td><span class="region-tag region-' + k.region + '">' + (regionLabel[k.region] || k.region) + '</span></td>';
             html += '<td><span class="badge badge-' + k.status + '">' + (statusLabel[k.status] || k.status) + '</span></td>';
+            html += '<td><span style="color:' + scoreColor + ';font-weight:700">' + k.score + '</span></td>';
             html += '<td><span class="cell-time">' + latencyStr + '</span></td>';
-            html += '<td><span class="cell-url" title="' + (k.url||'') + '">' + (k.url||'-') + '</span></td>';
             html += '<td><span class="cell-time">' + (k.added_at ? new Date(k.added_at).toLocaleString() : '-') + '</span></td>';
             html += '<td><span class="cell-time">' + duration + '</span></td>';
             html += '<td><button class="btn-sm" onclick="copyText(\'' + k.key + '\')">复制</button>' + urlBtn;
@@ -128,7 +236,6 @@ function refreshList() {
             html += '</tr>';
         });
         document.getElementById('keyTable').innerHTML = html;
-        showToast('列表已刷新，共 ' + keys.length + ' 个Key', 'success');
     }).catch(function() {
         hideLoading();
         showToast('刷新失败', 'error');
@@ -136,25 +243,21 @@ function refreshList() {
 }
 
 function retestOne(key) {
-    showLoading('正在重测Key...');
+    showToast('正在重测Key...', 'info');
     apiCall('retest', {key: key}).then(function() {
-        hideLoading();
-        showToast('重测完成，正在刷新...', 'success');
+        showToast('重测完成', 'success');
         refreshList();
     }).catch(function() {
-        hideLoading();
         showToast('重测失败', 'error');
     });
 }
 
 function retestAll() {
-    showLoading('正在重测所有Key...');
-    apiCall('retest', {}).then(function() {
-        hideLoading();
-        showToast('重测完成，正在刷新...', 'success');
+    showToast('正在测试所有Key，请不要做其他动作...', 'info');
+    apiCall('retest', {test_all: true}).then(function() {
+        showToast('重测完成', 'success');
         refreshList();
     }).catch(function() {
-        hideLoading();
         showToast('重测失败', 'error');
     });
 }
@@ -208,11 +311,80 @@ function exportAll() {
     });
 }
 
+function exportKeysOnly() {
+    apiCall('list').then(function(data) {
+        var usable = data.keys.filter(function(k){ return k.status === 'available'; });
+        if (!usable.length) { showToast('没有可用的Key（不含限流）', 'error'); return; }
+        var lines = usable.map(function(k){ return k.key; });
+        copyText(lines.join('\n'));
+        showToast('已复制 ' + usable.length + ' 个可用Key', 'success');
+    });
+}
+
 function exportJson() {
     apiCall('list').then(function(data) {
         copyText(JSON.stringify(data.keys, null, 2));
         showToast('JSON已复制', 'success');
     });
+}
+
+function exportData() {
+    showLoading('正在导出数据...');
+    apiCall('export_data', {}).then(function(data) {
+        hideLoading();
+        if (data.ok) {
+            // 创建下载文件
+            var blob = new Blob([JSON.stringify(data.data, null, 2)], {type: 'application/json'});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'api-keys-backup-' + new Date().toISOString().slice(0,10) + '.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('数据导出成功', 'success');
+        } else {
+            showToast('导出失败: ' + data.error, 'error');
+        }
+    }).catch(function() {
+        hideLoading();
+        showToast('导出失败', 'error');
+    });
+}
+
+function importData() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                var data = JSON.parse(event.target.result);
+                showLoading('正在导入数据...');
+                apiCall('import_data', {data: data}).then(function(result) {
+                    hideLoading();
+                    if (result.ok) {
+                        showToast('导入成功！新增 ' + result.imported + ' 个Key，共 ' + result.total + ' 个', 'success');
+                        refreshList();
+                    } else {
+                        showToast('导入失败: ' + result.error, 'error');
+                    }
+                }).catch(function() {
+                    hideLoading();
+                    showToast('导入失败', 'error');
+                });
+            } catch(err) {
+                showToast('文件格式错误', 'error');
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
 }
 
 function addUrl() {
@@ -431,13 +603,13 @@ input[type=text]::placeholder{color:rgba(255,255,255,0.2)}
 .stat-rate_limited .stat-num{color:#fbbf24}
 .stat-unavailable .stat-num{color:#f87171}
 .stat-total .stat-num{color:#60a5fa}
-.table-wrap{overflow-x:auto}
+.table-wrap{overflow-x:auto;max-width:100%}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;padding:12px 14px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.3);border-bottom:1px solid rgba(255,255,255,0.06)}
-td{padding:12px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:middle}
+th{text-align:left;padding:12px 14px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.3);border-bottom:1px solid rgba(255,255,255,0.06);white-space:nowrap}
+td{padding:12px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:middle;white-space:nowrap}
 tr{transition:background 0.15s}
 tr:hover{background:rgba(255,255,255,0.02)}
-.key-text{font-family:'SF Mono',monospace;font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,0.7)}
+.key-text{font-family:'SF Mono',monospace;font-size:12px;color:rgba(255,255,255,0.7)}
 .badge{display:inline-block;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:600;letter-spacing:0.5px}
 .badge-available{background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.2);color:#6ee7b7}
 .badge-rate_limited{background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.2);color:#fcd34d}
@@ -461,6 +633,24 @@ tr:hover{background:rgba(255,255,255,0.02)}
 .loading-spinner{width:50px;height:50px;border:3px solid rgba(255,255,255,0.1);border-top-color:#a78bfa;border-radius:50%;animation:spin 1s linear infinite}
 .loading-text{color:#e0e0e0;margin-top:20px;font-size:14px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.result-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:9998}
+.result-box{background:rgba(30,30,50,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:24px;max-width:400px;width:90%;max-height:80vh;overflow-y:auto}
+.result-header{font-size:18px;font-weight:700;text-align:center;margin-bottom:15px;color:#fff}
+.result-count{text-align:center;font-size:16px;margin-bottom:15px;color:rgba(255,255,255,0.8)}
+.result-stats{display:flex;justify-content:center;gap:15px;margin-bottom:15px}
+.stat-success{color:#34d399;font-weight:600}
+.stat-warning{color:#fbbf24;font-weight:600}
+.stat-error{color:#f87171;font-weight:600}
+.result-list{max-height:200px;overflow-y:auto;margin-bottom:10px}
+.result-item{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:8px;margin-bottom:5px}
+.result-item.success{background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.2)}
+.result-item.warning{background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2)}
+.result-item.error{background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2)}
+.result-key{font-family:'SF Mono',monospace;font-size:12px;color:rgba(255,255,255,0.7)}
+.result-status{font-size:11px;font-weight:600}
+.detail-row{margin:8px 0;font-size:13px}
+.detail-label{color:rgba(255,255,255,0.5);margin-right:8px}
+.detail-key{font-family:'SF Mono',monospace;font-size:12px;background:rgba(0,0,0,0.3);padding:10px;border-radius:8px;margin:10px 0;word-break:break-all}
 .header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
 .header-row h1{margin-bottom:0}
 .version-tag{font-size:12px;color:rgba(255,255,255,0.3);cursor:pointer}
@@ -471,6 +661,9 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="loading-overlay" id="loadingOverlay">
 <div class="loading-spinner"></div>
 <div class="loading-text" id="loadingText">处理中...</div>
+</div>
+<div class="result-modal" id="resultModal">
+<div class="result-box" id="resultContent"></div>
 </div>
 <div class="container">
 <div class="header-row">
@@ -522,7 +715,7 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="table-wrap">
 <table>
 <thead>
-<tr><th>#</th><th>Key</th><th>区域</th><th>状态</th><th>延迟</th><th>URL</th><th>加入时间</th><th>入库时长</th><th>操作</th></tr>
+<tr><th>#</th><th>Key</th><th>区域</th><th>状态</th><th>评分</th><th>延迟</th><th>加入时间</th><th>入库时长</th><th>操作</th></tr>
 </thead>
 <tbody id="keyTable">
 <tr><td colspan="7" class="empty">暂无数据</td></tr>
@@ -535,7 +728,10 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <h2>导出</h2>
 <div class="btn-row">
 <button class="btn btn-success" onclick="exportAll()">复制全部可用 Key+URL</button>
+<button class="btn btn-ghost" onclick="exportKeysOnly()">复制全部可用 Key</button>
 <button class="btn btn-ghost" onclick="exportJson()">复制 JSON</button>
+<button class="btn btn-primary" onclick="exportData()">导出数据</button>
+<button class="btn btn-ghost" onclick="importData()">导入数据</button>
 <button class="btn btn-primary" onclick="exportToOmniRoute()">导出到 OmniRoute</button>
 <button class="btn btn-ghost" onclick="configOmniRoute()">配置OmniRoute</button>
 <button class="btn btn-ghost" onclick="syncOmniRoute()">同步OmniRoute</button>
@@ -573,7 +769,8 @@ def api_list():
 @app.route('/api/retest', methods=['POST'])
 def api_retest():
     key = request.json.get('key')
-    validator.retest(key) if key else validator.retest()
+    test_all = request.json.get('test_all', False)
+    validator.retest(key, test_all=test_all)
     return jsonify({"ok": True})
 
 @app.route('/api/auto', methods=['POST'])
@@ -808,6 +1005,63 @@ def api_save_config():
     validator.config.update(config)
     validator._save_config()
     return jsonify({"ok": True})
+
+@app.route('/api/export_data', methods=['POST'])
+def api_export_data():
+    """导出所有数据（keys + config）"""
+    import json as json_mod
+    try:
+        data = {
+            "version": "1.0.0",
+            "exported_at": datetime.now().isoformat(),
+            "config": validator.config,
+            "keys": {k: asdict(v) for k, v in validator.keys.items()}
+        }
+        return jsonify({"ok": True, "data": data})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route('/api/import_data', methods=['POST'])
+def api_import_data():
+    """导入数据（keys + config）"""
+    import json as json_mod
+    try:
+        data = request.json.get('data', {})
+        
+        # 导入配置
+        if 'config' in data:
+            validator.config.update(data['config'])
+            validator._save_config()
+        
+        # 导入keys
+        imported_count = 0
+        if 'keys' in data:
+            for key, key_data in data['keys'].items():
+                if key not in validator.keys:
+                    validator.keys[key] = ApiKeyInfo(
+                        key=key_data.get('key', key),
+                        region=key_data.get('region', 'unknown'),
+                        status=key_data.get('status', 'unavailable'),
+                        url=key_data.get('url', ''),
+                        tested_at=key_data.get('tested_at', ''),
+                        added_at=key_data.get('added_at', ''),
+                        latency=key_data.get('latency', 0),
+                        error=key_data.get('error'),
+                        omniroute_id=key_data.get('omniroute_id', ''),
+                        score=key_data.get('score', 0),
+                        test_count=key_data.get('test_count', 0),
+                        rate_limit_count=key_data.get('rate_limit_count', 0)
+                    )
+                    imported_count += 1
+            validator._save_keys()
+        
+        return jsonify({
+            "ok": True,
+            "imported": imported_count,
+            "total": len(validator.keys)
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 def open_browser():

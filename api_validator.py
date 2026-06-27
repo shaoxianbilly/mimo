@@ -62,6 +62,9 @@ class ApiKeyInfo:
     latency: int = 0              # 延迟(ms)
     error: Optional[str] = None
     omniroute_id: str = ""        # OmniRoute中的连接ID
+    score: int = 0                # 推荐分数(0-100)
+    test_count: int = 0           # 测试次数
+    rate_limit_count: int = 0     # 限速次数
 
 
 class ApiKeyValidator:
@@ -91,10 +94,60 @@ class ApiKeyValidator:
                         added_at=v.get('added_at', ''),
                         latency=v.get('latency', 0),
                         error=v.get('error'),
-                        omniroute_id=v.get('omniroute_id', '')
+                        omniroute_id=v.get('omniroute_id', ''),
+                        score=v.get('score', 0),
+                        test_count=v.get('test_count', 0),
+                        rate_limit_count=v.get('rate_limit_count', 0)
                     )
                 return result
         return {}
+    
+    def _calculate_score(self, info: ApiKeyInfo) -> int:
+        """
+        计算Key的推荐分数(0-100)
+        
+        评分规则：
+        - 基础分：50分
+        - 状态分：available +30, rate_limited +10, unavailable 0
+        - 延迟分：延迟越低越好，最高+20分
+        - 限速扣分：每次限速扣5分，最低0分
+        - 测试次数加分：测试越多越可靠，最高+10分
+        """
+        score = 50  # 基础分
+        
+        # 状态分
+        if info.status == "available":
+            score += 30
+        elif info.status == "rate_limited":
+            score += 10
+        # unavailable 不加分
+        
+        # 延迟分（延迟越低越好）
+        if info.latency > 0:
+            if info.latency < 500:
+                score += 20
+            elif info.latency < 1000:
+                score += 15
+            elif info.latency < 2000:
+                score += 10
+            elif info.latency < 3000:
+                score += 5
+        
+        # 限速扣分
+        score -= info.rate_limit_count * 5
+        
+        # 测试次数加分（测试越多越可靠）
+        if info.test_count >= 10:
+            score += 10
+        elif info.test_count >= 5:
+            score += 7
+        elif info.test_count >= 3:
+            score += 5
+        elif info.test_count >= 1:
+            score += 3
+        
+        # 确保分数不为负数（无上限）
+        return max(0, score)
     
     def _save_keys(self):
         """保存keys到文件"""
@@ -240,13 +293,19 @@ class ApiKeyValidator:
         """
         decoded_key = self._decode_base64(key.strip())
         
-        # 检查是否已存在，保留原始加入时间
+        # 检查是否已存在，保留原始加入时间和统计数据
         existing = self.keys.get(decoded_key)
         added_at = existing.added_at if existing else datetime.now().isoformat()
+        test_count = (existing.test_count + 1) if existing else 1
+        rate_limit_count = existing.rate_limit_count if existing else 0
         
         for region, url in self.urls.items():
             is_valid, status, error, latency = self._test_key(decoded_key, url)
             if is_valid:
+                # 如果是限速，增加限速计数
+                if status == "rate_limited":
+                    rate_limit_count += 1
+                
                 info = ApiKeyInfo(
                     key=decoded_key,
                     region=region,
@@ -255,8 +314,12 @@ class ApiKeyValidator:
                     tested_at=datetime.now().isoformat(),
                     added_at=added_at,
                     latency=latency,
-                    error=error if error else None
+                    error=error if error else None,
+                    test_count=test_count,
+                    rate_limit_count=rate_limit_count
                 )
+                # 计算评分
+                info.score = self._calculate_score(info)
                 self.keys[decoded_key] = info
                 self._save_keys()
                 return info
@@ -269,8 +332,12 @@ class ApiKeyValidator:
             tested_at=datetime.now().isoformat(),
             added_at=added_at,
             latency=0,
-            error="All URLs failed"
+            error="All URLs failed",
+            test_count=test_count,
+            rate_limit_count=rate_limit_count
         )
+        # 计算评分
+        info.score = self._calculate_score(info)
         self.keys[decoded_key] = info
         self._save_keys()
         return info
@@ -298,10 +365,11 @@ class ApiKeyValidator:
         
         return results
     
-    def retest(self, key: str = None) -> List[ApiKeyInfo]:
+    def retest(self, key: str = None, test_all: bool = False) -> List[ApiKeyInfo]:
         """
-        重新测试（手动测试是否还限流）
-        key=None 时重测所有限流中的key
+        重新测试
+        key=None 且 test_all=False 时重测所有限流中的key
+        key=None 且 test_all=True 时重测所有key
         """
         if key:
             decoded = self._decode_base64(key.strip())
@@ -312,15 +380,21 @@ class ApiKeyValidator:
                 print("Key不存在于列表中")
                 return []
         
-        # 重测所有限流中的key
-        rate_limited = [k for k, v in self.keys.items() if v.status == "rate_limited"]
-        if not rate_limited:
-            print("没有限流中的key需要重测")
-            return []
+        # 确定要测试的keys
+        if test_all:
+            # 测试所有key
+            keys_to_test = list(self.keys.keys())
+            print(f"重测所有 {len(keys_to_test)} 个key...")
+        else:
+            # 只测试限流中的key
+            keys_to_test = [k for k, v in self.keys.items() if v.status == "rate_limited"]
+            if not keys_to_test:
+                print("没有限流中的key需要重测")
+                return []
+            print(f"重测 {len(keys_to_test)} 个限流中的key...")
         
-        print(f"重测 {len(rate_limited)} 个限流中的key...")
         results = []
-        for k in rate_limited:
+        for k in keys_to_test:
             result = self.validate(k)
             emoji = {"available": "✅", "unavailable": "❌", "rate_limited": "⚠️"}.get(result.status, "❓")
             print(f"  {emoji} {k[:30]}... → {result.status}")
