@@ -11,16 +11,35 @@ app = Flask(__name__)
 validator = ApiKeyValidator()
 
 JS_CODE = r"""
-function showToast(msg) {
+// Loading状态管理
+function showLoading(msg) {
+    var overlay = document.getElementById('loadingOverlay');
+    var text = document.getElementById('loadingText');
+    text.textContent = msg || '处理中...';
+    overlay.style.display = 'flex';
+    // 点击遮罩可关闭
+    overlay.onclick = function() {
+        overlay.style.display = 'none';
+    };
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+function showToast(msg, type) {
     var t = document.getElementById('toast');
     t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(function(){ t.classList.remove('show'); }, 2000);
+    t.className = 'toast show';
+    if (type === 'error') t.style.borderColor = 'rgba(248,113,113,0.5)';
+    else if (type === 'success') t.style.borderColor = 'rgba(52,211,153,0.5)';
+    else t.style.borderColor = 'rgba(96,165,250,0.5)';
+    setTimeout(function(){ t.classList.remove('show'); }, 3000);
 }
 
 function copyText(text) {
     navigator.clipboard.writeText(text);
-    showToast('已复制: ' + text.substring(0, 40) + '...');
+    showToast('已复制: ' + text.substring(0, 40) + '...', 'success');
 }
 
 function apiCall(action, data) {
@@ -47,15 +66,22 @@ function loadUrls() {
 
 function pasteValidate() {
     var text = document.getElementById('pasteArea').value.trim();
-    if (!text) return;
+    if (!text) { showToast('请粘贴内容', 'error'); return; }
+    showLoading('正在提取并验证Key...');
     apiCall('paste', {text: text}).then(function(data) {
-        showToast('提取到 ' + data.count + ' 个Key');
+        hideLoading();
+        showToast('提取到 ' + data.count + ' 个Key，正在刷新列表...', 'success');
         refreshList();
+    }).catch(function() {
+        hideLoading();
+        showToast('验证失败', 'error');
     });
 }
 
 function refreshList() {
+    showLoading('正在刷新列表...');
     apiCall('list').then(function(data) {
+        hideLoading();
         var keys = data.keys;
         var stats = {available: 0, rate_limited: 0, unavailable: 0, in_use: 0};
         keys.forEach(function(k){ stats[k.status] = (stats[k.status] || 0) + 1; });
@@ -67,7 +93,7 @@ function refreshList() {
             '<div class="stat-card stat-unavailable"><div class="stat-num">' + stats.unavailable + '</div><div class="stat-label">不可用</div></div>';
 
         if (!keys.length) {
-            document.getElementById('keyTable').innerHTML = '<tr><td colspan="7" class="empty">暂无数据</td></tr>';
+            document.getElementById('keyTable').innerHTML = '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
             return;
         }
 
@@ -75,7 +101,6 @@ function refreshList() {
         var regionLabel = {sgp: '新加坡', cn: '国内', 'sgp-anthropic': '新加坡A', 'cn-anthropic': '国内A', unknown: '-'};
         var html = '';
         keys.forEach(function(k, i) {
-            // 计算入库时长
             var duration = '';
             if (k.added_at) {
                 var added = new Date(k.added_at);
@@ -86,10 +111,7 @@ function refreshList() {
                 else if (diff < 86400) duration = Math.floor(diff/3600) + '小时';
                 else duration = Math.floor(diff/86400) + '天';
             }
-            
-            // 延迟显示
             var latencyStr = k.latency > 0 ? k.latency + 'ms' : '-';
-            
             var urlBtn = k.url ? '<button class="btn-sm" onclick="copyText(\'' + k.key + '\\n' + k.url + '\')">Key+URL</button>' : '';
             html += '<tr>';
             html += '<td style="color:rgba(255,255,255,0.25)">' + (i + 1) + '</td>';
@@ -100,42 +122,78 @@ function refreshList() {
             html += '<td><span class="cell-url" title="' + (k.url||'') + '">' + (k.url||'-') + '</span></td>';
             html += '<td><span class="cell-time">' + (k.added_at ? new Date(k.added_at).toLocaleString() : '-') + '</span></td>';
             html += '<td><span class="cell-time">' + duration + '</span></td>';
-            html += '<td><button class="btn-sm" onclick="copyText(\'' + k.key + '\')">复制Key</button>' + urlBtn;
+            html += '<td><button class="btn-sm" onclick="copyText(\'' + k.key + '\')">复制</button>' + urlBtn;
             html += '<button class="btn-sm" onclick="retestOne(\'' + k.key + '\')">重测</button>';
             html += '<button class="btn-sm btn-danger" onclick="deleteKey(\'' + k.key + '\')">删除</button></td>';
             html += '</tr>';
         });
         document.getElementById('keyTable').innerHTML = html;
+        showToast('列表已刷新，共 ' + keys.length + ' 个Key', 'success');
+    }).catch(function() {
+        hideLoading();
+        showToast('刷新失败', 'error');
     });
 }
 
 function retestOne(key) {
+    showLoading('正在重测Key...');
     apiCall('retest', {key: key}).then(function() {
+        hideLoading();
+        showToast('重测完成，正在刷新...', 'success');
         refreshList();
-        showToast('重测完成');
+    }).catch(function() {
+        hideLoading();
+        showToast('重测失败', 'error');
     });
 }
 
 function retestAll() {
+    showLoading('正在重测所有Key...');
     apiCall('retest', {}).then(function() {
+        hideLoading();
+        showToast('重测完成，正在刷新...', 'success');
         refreshList();
-        showToast('重测完成');
+    }).catch(function() {
+        hideLoading();
+        showToast('重测失败', 'error');
     });
 }
 
 function toggleAuto() {
     var on = document.getElementById('autoToggle').checked;
     apiCall('auto', {on: on, interval: 180}).then(function() {
-        showToast(on ? '自动重测已开启（2-5分钟随机）' : '自动重测已关闭');
+        showToast(on ? '自动重测已开启（2-5分钟随机）' : '自动重测已关闭', 'success');
     });
 }
 
 function initApp() {
     loadUrls();
     refreshList();
-    // 默认开启自动重测
     document.getElementById('autoToggle').checked = true;
     apiCall('auto', {on: true, interval: 180});
+    
+    // 自动检查更新（每天一次）
+    checkUpdateOnLoad();
+}
+
+function checkUpdateOnLoad() {
+    apiCall('check_update', {}).then(function(data) {
+        if (data.ok) {
+            // 更新版本号显示
+            var versionEl = document.getElementById('versionTag');
+            if (versionEl) {
+                versionEl.textContent = 'v' + data.local;
+                if (data.has_update) {
+                    versionEl.innerHTML = 'v' + data.local + ' <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="3"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+                    versionEl.onclick = function() {
+                        if (confirm('发现新版本 ' + data.remote + '，当前版本 ' + data.local + '，是否升级？')) {
+                            doUpdate();
+                        }
+                    };
+                }
+            }
+        }
+    });
 }
 
 initApp();
@@ -143,61 +201,66 @@ initApp();
 function exportAll() {
     apiCall('list').then(function(data) {
         var usable = data.keys.filter(function(k){ return k.status === 'available'; });
-        if (!usable.length) { showToast('没有可用的Key（不含限流）'); return; }
+        if (!usable.length) { showToast('没有可用的Key（不含限流）', 'error'); return; }
         var lines = usable.map(function(k){ return k.key + (k.url ? '\n' + k.url : ''); });
         copyText(lines.join('\n\n'));
-        showToast('已复制 ' + usable.length + ' 个可用Key');
+        showToast('已复制 ' + usable.length + ' 个可用Key', 'success');
     });
 }
 
 function exportJson() {
     apiCall('list').then(function(data) {
         copyText(JSON.stringify(data.keys, null, 2));
-        showToast('JSON已复制');
+        showToast('JSON已复制', 'success');
     });
 }
 
 function addUrl() {
     var url = document.getElementById('newUrl').value.trim();
     var region = document.getElementById('newRegion').value.trim();
-    if (!url) return;
+    if (!url) { showToast('请输入URL', 'error'); return; }
     if (!region) region = 'custom_' + Date.now();
     apiCall('add_url', {url: url, region: region}).then(function() {
         document.getElementById('newUrl').value = '';
         document.getElementById('newRegion').value = '';
         loadUrls();
-        showToast('已添加: ' + region);
+        showToast('已添加: ' + region, 'success');
     });
 }
 
 function removeUrl(region) {
     apiCall('del_url', {region: region}).then(function() {
         loadUrls();
-        showToast('已删除');
+        showToast('已删除', 'success');
     });
 }
 
 function deleteKey(key) {
     if (!confirm('确定删除这个Key？')) return;
+    showLoading('正在删除...');
     apiCall('delete_key', {key: key}).then(function() {
+        hideLoading();
+        showToast('已删除', 'success');
         refreshList();
-        showToast('已删除');
     });
 }
 
 function clearAll() {
     if (!confirm('确定清空所有Key？此操作不可恢复。')) return;
+    showLoading('正在清空...');
     apiCall('clear_all', {}).then(function(data) {
+        hideLoading();
+        showToast('已清空 ' + data.count + ' 个Key', 'success');
         refreshList();
-        showToast('已清空 ' + data.count + ' 个Key');
     });
 }
 
 function checkUpdate() {
-    showToast('正在检查更新...');
+    showLoading('正在检查更新...');
     apiCall('check_update', {}).then(function(data) {
+        hideLoading();
         if (!data.ok) {
-            showToast('检查失败: ' + data.error);
+            showToast('检查失败: ' + data.error, 'error');
             return;
         }
         if (data.has_update) {
@@ -205,53 +268,109 @@ function checkUpdate() {
                 doUpdate();
             }
         } else {
-            showToast('已是最新版本 ' + data.local);
+            showToast('已是最新版本 ' + data.local, 'success');
         }
+    }).catch(function() {
+        hideLoading();
+        showToast('检查更新失败', 'error');
     });
 }
 
 function doUpdate() {
-    showToast('正在升级...');
+    showLoading('正在升级...');
     apiCall('do_update', {}).then(function(data) {
+        hideLoading();
         if (data.ok) {
             if (data.install_type === 'docker') {
-                showToast('Docker容器已重建，版本: ' + data.version);
+                showToast('Docker容器已重建，版本: ' + data.old_version + ' → ' + data.version, 'success');
             } else {
-                showToast('代码已更新，请手动重启程序');
+                showToast('升级成功！版本: ' + data.old_version + ' → ' + data.version + '，正在重启...', 'success');
+                // 等待重启后刷新页面
+                setTimeout(function() {
+                    window.location.reload();
+                }, 3000);
             }
         } else {
-            showToast('升级失败: ' + data.error);
+            showToast('升级失败: ' + data.error, 'error');
         }
+    }).catch(function() {
+        hideLoading();
+        showToast('升级失败', 'error');
     });
 }
 
 function clearUnavailable() {
     if (!confirm('确定清除所有不可用的Key？')) return;
+    showLoading('正在清除...');
     apiCall('clear_unavailable', {}).then(function(data) {
+        hideLoading();
+        showToast('已清除 ' + data.count + ' 个不可用Key', 'success');
         refreshList();
-        showToast('已清除 ' + data.count + ' 个不可用Key');
     });
 }
 
 function exportToOmniRoute() {
-    var url = prompt('OmniRoute地址:', 'http://localhost:20128');
-    if (!url) return;
-    var apiKey = prompt('OmniRoute API Key (可留空):', '');
-    
-    apiCall('export_omniroute', {
-        omniroute_url: url,
-        omniroute_api_key: apiKey || ''
-    }).then(function(data) {
-        refreshList();
-        var msg = '新增 ' + data.success + ' 个';
-        if (data.skipped > 0) {
-            msg += '，跳过 ' + data.skipped + ' 个重复';
+    // 先加载配置
+    apiCall('get_config', {}).then(function(configData) {
+        var config = configData.config || {};
+        var url = prompt('OmniRoute地址:', config.omniroute_url || 'http://192.168.2.35:20128');
+        if (!url) return;
+        var apiKey = prompt('OmniRoute Access Token:', config.omniroute_api_key || '');
+        
+        showLoading('正在导出到OmniRoute...');
+        apiCall('export_omniroute', {
+            omniroute_url: url,
+            omniroute_api_key: apiKey || ''
+        }).then(function(data) {
+            hideLoading();
+            if (data.ok) {
+                var msg = '导出完成！新增 ' + data.success + ' 个';
+                if (data.skipped > 0) msg += '，跳过 ' + data.skipped + ' 个重复';
+                if (data.errors && data.errors.length > 0) msg += '，失败 ' + data.errors.length + ' 个';
+                showToast(msg, data.errors.length > 0 ? 'error' : 'success');
+            } else {
+                showToast('导出失败', 'error');
+            }
+            refreshList();
+        }).catch(function() {
+            hideLoading();
+            showToast('导出失败，无法连接OmniRoute', 'error');
+        });
+    });
+}
+
+function syncOmniRoute() {
+    if (!confirm('同步会删除OmniRoute中所有无效Key对应的配置，确定？')) return;
+    showLoading('正在同步OmniRoute...');
+    apiCall('sync_omniroute', {}).then(function(data) {
+        hideLoading();
+        if (data.ok) {
+            showToast('同步完成，删除了 ' + data.deleted + ' 个无效配置', 'success');
+        } else {
+            showToast('同步失败: ' + data.error, 'error');
         }
-        if (data.errors && data.errors.length > 0) {
-            msg += '，失败 ' + data.errors.length + ' 个';
-            console.log('导出错误:', data.errors);
-        }
-        showToast(msg);
+    }).catch(function() {
+        hideLoading();
+        showToast('同步失败', 'error');
+    });
+}
+
+function configOmniRoute() {
+    apiCall('get_config', {}).then(function(data) {
+        var config = data.config || {};
+        var url = prompt('OmniRoute地址:', config.omniroute_url || 'http://192.168.2.35:20128');
+        if (url === null) return;  // 用户取消
+        var apiKey = prompt('OmniRoute Access Token:', config.omniroute_api_key || '');
+        if (apiKey === null) return;  // 用户取消
+        
+        apiCall('save_config', {
+            config: {
+                omniroute_url: url,
+                omniroute_api_key: apiKey
+            }
+        }).then(function() {
+            showToast('OmniRoute配置已保存', 'success');
+        });
     });
 }
 """
@@ -338,11 +457,26 @@ tr:hover{background:rgba(255,255,255,0.02)}
 .url-input-row{display:flex;gap:10px;margin-top:14px}
 .url-input-row input:first-child{flex:1}
 .url-input-row input:nth-child(2){width:120px}
+.loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);display:none;justify-content:center;align-items:center;z-index:9999;flex-direction:column}
+.loading-spinner{width:50px;height:50px;border:3px solid rgba(255,255,255,0.1);border-top-color:#a78bfa;border-radius:50%;animation:spin 1s linear infinite}
+.loading-text{color:#e0e0e0;margin-top:20px;font-size:14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
+.header-row h1{margin-bottom:0}
+.version-tag{font-size:12px;color:rgba(255,255,255,0.3);cursor:pointer}
+.version-tag:hover{color:rgba(255,255,255,0.6)}
 </style>
 </head>
 <body>
+<div class="loading-overlay" id="loadingOverlay">
+<div class="loading-spinner"></div>
+<div class="loading-text" id="loadingText">处理中...</div>
+</div>
 <div class="container">
+<div class="header-row">
 <h1>API KEY 管理器</h1>
+<span class="version-tag" id="versionTag" onclick="checkUpdate()">v1.0.0</span>
+</div>
 
 <div class="glass">
 <h2>接口端点</h2>
@@ -403,9 +537,10 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <button class="btn btn-success" onclick="exportAll()">复制全部可用 Key+URL</button>
 <button class="btn btn-ghost" onclick="exportJson()">复制 JSON</button>
 <button class="btn btn-primary" onclick="exportToOmniRoute()">导出到 OmniRoute</button>
+<button class="btn btn-ghost" onclick="configOmniRoute()">配置OmniRoute</button>
+<button class="btn btn-ghost" onclick="syncOmniRoute()">同步OmniRoute</button>
 <button class="btn btn-warning" onclick="clearUnavailable()">清除不可用Key</button>
 <button class="btn btn-warning" onclick="clearAll()">清空所有Key</button>
-<button class="btn btn-ghost" onclick="checkUpdate()" style="margin-left:auto">检查更新</button>
 </div>
 </div>
 
@@ -519,10 +654,18 @@ def api_do_update():
         # 检测安装方式
         is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER') == 'true'
         
+        # 备份当前版本
+        try:
+            with open('version.json', 'r') as f:
+                old_version = json_mod.load(f).get('version', '0.0.0')
+        except:
+            old_version = '0.0.0'
+        
         # 拉取最新代码
         result = subprocess.run(
             ['git', 'pull', 'origin', 'main'],
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=30,
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
         
         if result.returncode == 0:
@@ -537,21 +680,29 @@ def api_do_update():
                 return jsonify({
                     "ok": True,
                     "version": new_version,
+                    "old_version": old_version,
                     "message": "Docker容器已重建",
                     "install_type": "docker"
                 })
             else:
-                # 本地方式：需要手动重启
+                # 本地方式：自动重启
+                def restart_delayed():
+                    import time
+                    time.sleep(2)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                
+                threading.Thread(target=restart_delayed, daemon=True).start()
                 return jsonify({
                     "ok": True,
                     "version": new_version,
-                    "message": "代码已更新，请手动重启程序",
+                    "old_version": old_version,
+                    "message": "代码已更新，正在重启...",
                     "install_type": "local"
                 })
         else:
             return jsonify({
                 "ok": False,
-                "error": result.stderr
+                "error": result.stderr or "git pull失败"
             })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -574,8 +725,14 @@ def api_restart():
 
 @app.route('/api/export_omniroute', methods=['POST'])
 def api_export_omniroute():
-    omniroute_url = request.json.get('omniroute_url', 'http://localhost:20128')
+    omniroute_url = request.json.get('omniroute_url', '')
     omniroute_api_key = request.json.get('omniroute_api_key', '')
+    
+    # 保存配置
+    validator.config['omniroute_url'] = omniroute_url
+    validator.config['omniroute_api_key'] = omniroute_api_key
+    validator._save_config()
+    
     success_count, errors, skip_count = validator.export_to_omniroute(omniroute_url, omniroute_api_key)
     return jsonify({
         "ok": True,
@@ -584,6 +741,73 @@ def api_export_omniroute():
         "errors": errors,
         "total": success_count + len(errors) + skip_count
     })
+
+@app.route('/api/sync_omniroute', methods=['POST'])
+def api_sync_omniroute():
+    """同步：删除OmniRoute中无效的Key"""
+    omniroute_url = validator.config.get('omniroute_url', '')
+    omniroute_api_key = validator.config.get('omniroute_api_key', '')
+    
+    if not omniroute_url:
+        return jsonify({"ok": False, "error": "未配置OmniRoute地址"})
+    
+    try:
+        headers = {"Content-Type": "application/json"}
+        if omniroute_api_key:
+            headers["Authorization"] = f"Bearer {omniroute_api_key}"
+        
+        # 获取OmniRoute中的连接
+        resp = requests.get(f"{omniroute_url}/api/providers", headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return jsonify({"ok": False, "error": "无法连接OmniRoute"})
+        
+        connections = resp.json().get('connections', [])
+        
+        # 找出无效的Key对应的连接ID
+        invalid_ids = []
+        for conn in connections:
+            api_key = conn.get('apiKey', '')
+            # 检查本地是否有这个Key且状态为unavailable
+            for key, info in validator.keys.items():
+                if key[:20] == api_key[:20] and info.status == 'unavailable':
+                    invalid_ids.append(conn['id'])
+                    break
+        
+        # 删除无效连接
+        deleted = 0
+        if invalid_ids:
+            del_resp = requests.delete(
+                f"{omniroute_url}/api/providers",
+                headers=headers,
+                json={"ids": invalid_ids},
+                timeout=10
+            )
+            if del_resp.status_code == 200:
+                deleted = del_resp.json().get('deleted', 0)
+        
+        return jsonify({
+            "ok": True,
+            "deleted": deleted,
+            "total": len(connections)
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+@app.route('/api/get_config', methods=['POST'])
+def api_get_config():
+    """获取配置"""
+    return jsonify({
+        "ok": True,
+        "config": validator.config
+    })
+
+@app.route('/api/save_config', methods=['POST'])
+def api_save_config():
+    """保存配置"""
+    config = request.json.get('config', {})
+    validator.config.update(config)
+    validator._save_config()
+    return jsonify({"ok": True})
 
 
 def open_browser():

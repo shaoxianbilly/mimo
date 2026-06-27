@@ -46,6 +46,9 @@ DEFAULT_MODEL = "mimo-v2.5-pro"
 DEFAULT_OMNIROUTE_URL = "http://localhost:20128"
 DEFAULT_OMNIROUTE_API_KEY = ""  # OmniRoute的管理API Key
 
+# 配置文件路径
+CONFIG_FILE = Path(__file__).parent / "config.json"
+
 
 @dataclass
 class ApiKeyInfo:
@@ -58,6 +61,7 @@ class ApiKeyInfo:
     added_at: str = ""            # 加入时间
     latency: int = 0              # 延迟(ms)
     error: Optional[str] = None
+    omniroute_id: str = ""        # OmniRoute中的连接ID
 
 
 class ApiKeyValidator:
@@ -69,6 +73,7 @@ class ApiKeyValidator:
         self.keys = self._load_keys()
         self._auto_thread = None
         self._auto_stop = threading.Event()
+        self.config = self._load_config()
     
     def _load_keys(self):
         """从文件加载已保存的keys"""
@@ -83,7 +88,10 @@ class ApiKeyValidator:
                         status=v.get('status', 'unavailable'),
                         url=v.get('url', ''),
                         tested_at=v.get('tested_at', ''),
-                        error=v.get('error')
+                        added_at=v.get('added_at', ''),
+                        latency=v.get('latency', 0),
+                        error=v.get('error'),
+                        omniroute_id=v.get('omniroute_id', '')
                     )
                 return result
         return {}
@@ -92,6 +100,22 @@ class ApiKeyValidator:
         """保存keys到文件"""
         with open(DATA_FILE, 'w') as f:
             json.dump({k: asdict(v) for k, v in self.keys.items()}, f, indent=2, ensure_ascii=False)
+    
+    def _load_config(self):
+        """加载配置文件"""
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        return {
+            'omniroute_url': DEFAULT_OMNIROUTE_URL,
+            'omniroute_api_key': DEFAULT_OMNIROUTE_API_KEY,
+            'last_update_check': ''
+        }
+    
+    def _save_config(self):
+        """保存配置文件"""
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(self.config, f, indent=2, ensure_ascii=False)
     
     def _decode_base64(self, text: str) -> str:
         """尝试Base64解码（支持双重编码）"""
