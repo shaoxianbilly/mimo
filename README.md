@@ -83,6 +83,45 @@ python app.py
 open http://localhost:8899
 ```
 
+## 构建 Mac .app
+
+### 一键构建
+
+```bash
+# 克隆项目
+git clone https://github.com/shaoxianbilly/mimo.git
+cd mimo
+
+# 运行构建脚本
+./build_mac.sh
+```
+
+构建完成后，`dist/API Key Validator.app` 即可使用。
+
+### 手动构建
+
+```bash
+# 安装依赖
+pip install flask requests pyinstaller
+
+# 构建
+pyinstaller --name "API Key Validator" --windowed --onefile --add-data "api_validator.py:." app.py
+
+# 运行
+open "dist/API Key Validator.app"
+```
+
+### 安装到应用程序
+
+```bash
+cp -r "dist/API Key Validator.app" /Applications/
+```
+
+构建完成后：
+- 双击运行：`dist/API Key Validator.app`
+- 浏览器自动打开：`http://localhost:8899`
+- 退出：关闭终端窗口或按 Ctrl+C
+
 ## 默认端点
 
 | 名称 | URL |
