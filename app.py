@@ -178,6 +178,12 @@ function refreshList() {
     apiCall('list').then(function(data) {
         hideLoading();
         var keys = data.keys;
+        
+        // 分离本地和OmniRoute导入的Key
+        var localKeys = keys.filter(function(k) { return k.source !== 'omniroute'; });
+        var omnirouteKeys = keys.filter(function(k) { return k.source === 'omniroute'; });
+        
+        // 统计（所有Key）
         var stats = {available: 0, rate_limited: 0, unavailable: 0, in_use: 0};
         keys.forEach(function(k){ stats[k.status] = (stats[k.status] || 0) + 1; });
 
@@ -187,59 +193,63 @@ function refreshList() {
             '<div class="stat-card stat-rate_limited"><div class="stat-num">' + stats.rate_limited + '</div><div class="stat-label">限流中</div></div>' +
             '<div class="stat-card stat-unavailable"><div class="stat-num">' + stats.unavailable + '</div><div class="stat-label">不可用</div></div>';
 
-        if (!keys.length) {
-            document.getElementById('keyTable').innerHTML = '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
-            return;
-        }
-
-        var statusLabel = {available: '可用', rate_limited: '限流中', unavailable: '不可用', in_use: '使用中'};
-        var regionLabel = {sgp: '新加坡', cn: '国内', 'sgp-anthropic': '新加坡A', 'cn-anthropic': '国内A', unknown: '-'};
-        var html = '';
-        keys.forEach(function(k, i) {
-            // 评分颜色（无上限，按等级划分）
-            var scoreColor = '#f87171'; // 红色
-            if (k.score >= 100) scoreColor = '#34d399'; // 绿色（优质）
-            else if (k.score >= 80) scoreColor = '#6ee7b7'; // 浅绿色（良好）
-            else if (k.score >= 60) scoreColor = '#fbbf24'; // 黄色（一般）
-            else if (k.score >= 40) scoreColor = '#fb923c'; // 橙色（较差）
-            
-            // 计算入库时长
-            var duration = '';
-            if (k.added_at) {
-                var added = new Date(k.added_at);
-                var now = new Date();
-                var diff = Math.floor((now - added) / 1000);
-                if (diff < 60) duration = diff + '秒';
-                else if (diff < 3600) duration = Math.floor(diff/60) + '分钟';
-                else if (diff < 86400) duration = Math.floor(diff/3600) + '小时';
-                else duration = Math.floor(diff/86400) + '天';
-            }
-            
-            // 延迟显示
-            var latencyStr = k.latency > 0 ? k.latency + 'ms' : '-';
-            
-            // 操作按钮
-            var urlBtn = k.url ? '<button class="btn-sm" onclick="copyText(\'' + k.key + '\\n' + k.url + '\')">URL</button>' : '';
-            
-            html += '<tr>';
-            html += '<td style="color:rgba(255,255,255,0.25)">' + (i + 1) + '</td>';
-            html += '<td><span class="key-text" title="点击查看详情" onclick="showKeyDetail(\'' + k.key + '\')" style="cursor:pointer">' + k.key + '</span></td>';
-            html += '<td><span class="region-tag region-' + k.region + '">' + (regionLabel[k.region] || k.region) + '</span></td>';
-            html += '<td><span class="badge badge-' + k.status + '">' + (statusLabel[k.status] || k.status) + '</span></td>';
-            html += '<td><span style="color:' + scoreColor + ';font-weight:700">' + k.score + '</span></td>';
-            html += '<td><span class="cell-time">' + latencyStr + '</span></td>';
-            html += '<td><span class="cell-time">' + (k.added_at ? new Date(k.added_at).toLocaleString() : '-') + '</span></td>';
-            html += '<td><span class="cell-time">' + duration + '</span></td>';
-            html += '<td><button class="btn-sm" onclick="copyText(\'' + k.key + '\')">复制</button>' + urlBtn;
-            html += '<button class="btn-sm" onclick="retestOne(\'' + k.key + '\')">重测</button>';
-            html += '<button class="btn-sm btn-danger" onclick="deleteKey(\'' + k.key + '\')">删除</button></td>';
-            html += '</tr>';
-        });
-        document.getElementById('keyTable').innerHTML = html;
+        // 渲染本地Key表格
+        document.getElementById('keyTable').innerHTML = renderKeyTable(localKeys);
+        
+        // 渲染OmniRoute导入的Key表格
+        document.getElementById('omnirouteKeyTable').innerHTML = renderKeyTable(omnirouteKeys);
     }).catch(function() {
         hideLoading();
         showToast('刷新失败', 'error');
     });
+}
+
+function renderKeyTable(keys) {
+    if (!keys.length) {
+        return '<tr><td colspan="9" class="empty">暂无数据</td></tr>';
+    }
+
+    var statusLabel = {available: '可用', rate_limited: '限流中', unavailable: '不可用', in_use: '使用中', unknown: '未测试'};
+    var regionLabel = {sgp: '新加坡', cn: '国内', 'sgp-anthropic': '新加坡A', 'cn-anthropic': '国内A', unknown: '-'};
+    var html = '';
+    keys.forEach(function(k, i) {
+        // 评分颜色（无上限，按等级划分）
+        var scoreColor = '#f87171';
+        if (k.score >= 100) scoreColor = '#34d399';
+        else if (k.score >= 80) scoreColor = '#6ee7b7';
+        else if (k.score >= 60) scoreColor = '#fbbf24';
+        else if (k.score >= 40) scoreColor = '#fb923c';
+        
+        // 计算入库时长
+        var duration = '';
+        if (k.added_at) {
+            var added = new Date(k.added_at);
+            var now = new Date();
+            var diff = Math.floor((now - added) / 1000);
+            if (diff < 60) duration = diff + '秒';
+            else if (diff < 3600) duration = Math.floor(diff/60) + '分钟';
+            else if (diff < 86400) duration = Math.floor(diff/3600) + '小时';
+            else duration = Math.floor(diff/86400) + '天';
+        }
+        
+        var latencyStr = k.latency > 0 ? k.latency + 'ms' : '-';
+        var urlBtn = k.url ? '<button class="btn-sm" onclick="copyText(\'' + k.key + '\\n' + k.url + '\')">URL</button>' : '';
+        
+        html += '<tr>';
+        html += '<td style="color:rgba(255,255,255,0.25)">' + (i + 1) + '</td>';
+        html += '<td><span class="key-text" title="点击查看详情" onclick="showKeyDetail(\'' + k.key + '\')" style="cursor:pointer">' + k.key + '</span></td>';
+        html += '<td><span class="region-tag region-' + k.region + '">' + (regionLabel[k.region] || k.region) + '</span></td>';
+        html += '<td><span class="badge badge-' + k.status + '">' + (statusLabel[k.status] || k.status) + '</span></td>';
+        html += '<td><span style="color:' + scoreColor + ';font-weight:700">' + k.score + '</span></td>';
+        html += '<td><span class="cell-time">' + latencyStr + '</span></td>';
+        html += '<td><span class="cell-time">' + (k.added_at ? new Date(k.added_at).toLocaleString() : '-') + '</span></td>';
+        html += '<td><span class="cell-time">' + duration + '</span></td>';
+        html += '<td><button class="btn-sm" onclick="copyText(\'' + k.key + '\')">复制</button>' + urlBtn;
+        html += '<button class="btn-sm" onclick="retestOne(\'' + k.key + '\')">重测</button>';
+        html += '<button class="btn-sm btn-danger" onclick="deleteKey(\'' + k.key + '\')">删除</button></td>';
+        html += '</tr>';
+    });
+    return html;
 }
 
 function retestOne(key) {
@@ -739,16 +749,31 @@ tr:hover{background:rgba(255,255,255,0.02)}
 </div>
 
 <div class="glass">
-<h2>Key 列表</h2>
+<h2>Key 列表（本地）</h2>
 <div class="table-wrap">
 <table>
 <thead>
 <tr><th>#</th><th>Key</th><th>区域</th><th>状态</th><th>评分</th><th>延迟</th><th>加入时间</th><th>入库时长</th><th>操作</th></tr>
 </thead>
 <tbody id="keyTable">
-<tr><td colspan="7" class="empty">暂无数据</td></tr>
+<tr><td colspan="9" class="empty">暂无数据</td></tr>
 </tbody>
 </table>
+</div>
+</div>
+
+<div class="glass">
+<h2>Key 列表（OmniRoute导入）</h2>
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>#</th><th>Key</th><th>区域</th><th>状态</th><th>评分</th><th>延迟</th><th>加入时间</th><th>入库时长</th><th>操作</th></tr>
+</thead>
+<tbody id="omnirouteKeyTable">
+<tr><td colspan="9" class="empty">暂无数据</td></tr>
+</tbody>
+</table>
+</div>
 </div>
 </div>
 
