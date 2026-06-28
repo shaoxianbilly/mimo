@@ -905,6 +905,9 @@ def api_do_update():
         # 检测安装方式
         is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER') == 'true'
         
+        # 获取应用目录（当前工作目录）
+        app_dir = os.getcwd()
+        
         # 备份当前版本
         try:
             with open('version.json', 'r') as f:
@@ -916,7 +919,7 @@ def api_do_update():
         result = subprocess.run(
             ['git', 'pull', 'origin', 'main'],
             capture_output=True, text=True, timeout=30,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=app_dir
         )
         
         if result.returncode == 0:
