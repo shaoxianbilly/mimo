@@ -517,13 +517,41 @@ function syncOmniRoute() {
     apiCall('sync_omniroute', {}).then(function(data) {
         hideLoading();
         if (data.ok) {
-            showToast('同步完成，删除了 ' + data.deleted + ' 个无效配置', 'success');
+            var msg = '同步完成！删除了 ' + data.deleted + ' 个无效MIMO配置';
+            msg += '（保护了 ' + data.other_protected + ' 个其他渠道配置）';
+            showToast(msg, 'success');
         } else {
             showToast('同步失败: ' + data.error, 'error');
         }
     }).catch(function() {
         hideLoading();
         showToast('同步失败', 'error');
+    });
+}
+
+function importFromOmniRoute() {
+    apiCall('get_config', {}).then(function(configData) {
+        var config = configData.config || {};
+        var url = prompt('OmniRoute地址:', config.omniroute_url || 'http://192.168.2.35:20128');
+        if (!url) return;
+        var apiKey = prompt('OmniRoute Access Token:', config.omniroute_api_key || '');
+        
+        showLoading('正在从OmniRoute导入MIMO Key...');
+        apiCall('import_omniroute', {
+            omniroute_url: url,
+            omniroute_api_key: apiKey || ''
+        }).then(function(data) {
+            hideLoading();
+            if (data.ok) {
+                showToast('导入完成！新增 ' + data.imported + ' 个MIMO Key，共 ' + data.total + ' 个', 'success');
+                refreshList();
+            } else {
+                showToast('导入失败', 'error');
+            }
+        }).catch(function() {
+            hideLoading();
+            showToast('导入失败，无法连接OmniRoute', 'error');
+        });
     });
 }
 
@@ -733,6 +761,7 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <button class="btn btn-primary" onclick="exportData()">导出数据</button>
 <button class="btn btn-ghost" onclick="importData()">导入数据</button>
 <button class="btn btn-primary" onclick="exportToOmniRoute()">导出到 OmniRoute</button>
+<button class="btn btn-ghost" onclick="importFromOmniRoute()">从OmniRoute导入</button>
 <button class="btn btn-ghost" onclick="configOmniRoute()">配置OmniRoute</button>
 <button class="btn btn-ghost" onclick="syncOmniRoute()">同步OmniRoute</button>
 <button class="btn btn-warning" onclick="clearUnavailable()">清除不可用Key</button>
@@ -939,9 +968,28 @@ def api_export_omniroute():
         "total": success_count + len(errors) + skip_count
     })
 
+@app.route('/api/import_omniroute', methods=['POST'])
+def api_import_omniroute():
+    """从OmniRoute导入MIMO Key"""
+    omniroute_url = request.json.get('omniroute_url', '')
+    omniroute_api_key = request.json.get('omniroute_api_key', '')
+    
+    # 保存配置
+    validator.config['omniroute_url'] = omniroute_url
+    validator.config['omniroute_api_key'] = omniroute_api_key
+    validator._save_config()
+    
+    imported_count, errors = validator.import_from_omniroute(omniroute_url, omniroute_api_key)
+    return jsonify({
+        "ok": True,
+        "imported": imported_count,
+        "errors": errors,
+        "total": len(validator.keys)
+    })
+
 @app.route('/api/sync_omniroute', methods=['POST'])
 def api_sync_omniroute():
-    """同步：删除OmniRoute中无效的Key"""
+    """同步：只删除OmniRoute中MIMO的无效Key配置（不影响其他渠道）"""
     omniroute_url = validator.config.get('omniroute_url', '')
     omniroute_api_key = validator.config.get('omniroute_api_key', '')
     
@@ -960,10 +1008,22 @@ def api_sync_omniroute():
         
         connections = resp.json().get('connections', [])
         
-        # 找出无效的Key对应的连接ID
+        # 只筛选MIMO provider中无效的Key
         invalid_ids = []
+        mimo_count = 0
+        other_count = 0
+        
         for conn in connections:
+            provider = conn.get('provider', '')
             api_key = conn.get('apiKey', '')
+            
+            # 只处理MIMO provider
+            if provider != 'xiaomi-mimo':
+                other_count += 1
+                continue
+            
+            mimo_count += 1
+            
             # 检查本地是否有这个Key且状态为unavailable
             for key, info in validator.keys.items():
                 if key[:20] == api_key[:20] and info.status == 'unavailable':
@@ -985,6 +1045,8 @@ def api_sync_omniroute():
         return jsonify({
             "ok": True,
             "deleted": deleted,
+            "mimo_total": mimo_count,
+            "other_protected": other_count,
             "total": len(connections)
         })
     except Exception as e:

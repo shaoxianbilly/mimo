@@ -65,6 +65,7 @@ class ApiKeyInfo:
     score: int = 0                # 推荐分数(0-100)
     test_count: int = 0           # 测试次数
     rate_limit_count: int = 0     # 限速次数
+    source: str = "local"         # 来源: local / omniroute
 
 
 class ApiKeyValidator:
@@ -97,7 +98,8 @@ class ApiKeyValidator:
                         omniroute_id=v.get('omniroute_id', ''),
                         score=v.get('score', 0),
                         test_count=v.get('test_count', 0),
-                        rate_limit_count=v.get('rate_limit_count', 0)
+                        rate_limit_count=v.get('rate_limit_count', 0),
+                        source=v.get('source', 'local')
                     )
                 return result
         return {}
@@ -518,20 +520,20 @@ class ApiKeyValidator:
     def export_to_omniroute(self, omniroute_url: str = DEFAULT_OMNIROUTE_URL, 
                             omniroute_api_key: str = DEFAULT_OMNIROUTE_API_KEY) -> Tuple[int, List[str]]:
         """
-        将可用的Key导出到OmniRoute
+        将可用的Key导出到OmniRoute（只导出MIMO的Key）
         每个Key创建两个配置：OpenAI兼容 + Anthropic兼容
         
         去重策略：检查OmniRoute中是否已存在相同的Key，跳过重复
         
-        返回: (成功数, 错误列表)
+        返回: (成功数, 错误列表, 跳过数)
         """
         # 只导出可用的Key
         available_keys = [k for k, v in self.keys.items() if v.status == "available"]
         
         if not available_keys:
-            return 0, ["没有可用的Key"]
+            return 0, ["没有可用的Key"], 0
         
-        # 获取OmniRoute中已存在的Key
+        # 获取OmniRoute中已存在的MIMO Key
         existing_keys = set()
         try:
             headers = {"Content-Type": "application/json"}
@@ -547,12 +549,13 @@ class ApiKeyValidator:
             if resp.status_code == 200:
                 data = resp.json()
                 for conn in data.get('connections', []):
-                    # 提取Key的前20位作为去重标识
-                    api_key = conn.get('apiKey', '')
-                    if api_key:
-                        existing_keys.add(api_key[:20])
+                    # 只检查MIMO provider
+                    if conn.get('provider') == 'xiaomi-mimo':
+                        api_key = conn.get('apiKey', '')
+                        if api_key:
+                            existing_keys.add(api_key[:20])
         except Exception as e:
-            return 0, [f"无法连接OmniRoute: {str(e)}"]
+            return 0, [f"无法连接OmniRoute: {str(e)}"], 0
         
         success_count = 0
         skip_count = 0
@@ -625,6 +628,82 @@ class ApiKeyValidator:
                     errors.append(f"{key[:20]}...: {str(e)}")
         
         return success_count, errors, skip_count
+    
+    def import_from_omniroute(self, omniroute_url: str = DEFAULT_OMNIROUTE_URL, 
+                              omniroute_api_key: str = DEFAULT_OMNIROUTE_API_KEY) -> Tuple[int, List[str]]:
+        """
+        从OmniRoute导入MIMO的Key到本地
+        
+        返回: (导入数, 错误列表)
+        """
+        try:
+            headers = {"Content-Type": "application/json"}
+            if omniroute_api_key:
+                headers["Authorization"] = f"Bearer {omniroute_api_key}"
+            
+            resp = requests.get(
+                f"{omniroute_url}/api/providers",
+                headers=headers,
+                timeout=10
+            )
+            
+            if resp.status_code != 200:
+                return 0, [f"无法连接OmniRoute: HTTP {resp.status_code}"]
+            
+            connections = resp.json().get('connections', [])
+            
+            # 只筛选MIMO provider
+            mimo_connections = [c for c in connections if c.get('provider') == 'xiaomi-mimo']
+            
+            if not mimo_connections:
+                return 0, ["OmniRoute中没有MIMO配置"]
+            
+            imported_count = 0
+            errors = []
+            
+            for conn in mimo_connections:
+                api_key = conn.get('apiKey', '')
+                conn_id = conn.get('id', '')
+                conn_name = conn.get('name', '')
+                psd = conn.get('providerSpecificData', {})
+                base_url = psd.get('baseUrl', '')
+                
+                if not api_key:
+                    continue
+                
+                # 检查本地是否已存在
+                if api_key in self.keys:
+                    # 更新omniroute_id
+                    self.keys[api_key].omniroute_id = conn_id
+                    continue
+                
+                # 确定区域
+                region = "unknown"
+                if 'sgp' in base_url.lower():
+                    region = "sgp"
+                elif 'cn' in base_url.lower():
+                    region = "cn"
+                
+                # 创建新的KeyInfo
+                info = ApiKeyInfo(
+                    key=api_key,
+                    region=region,
+                    status="unknown",  # 需要测试后确定
+                    url=base_url,
+                    added_at=datetime.now().isoformat(),
+                    omniroute_id=conn_id,
+                    source="omniroute"
+                )
+                self.keys[api_key] = info
+                imported_count += 1
+            
+            if imported_count > 0:
+                self._save_keys()
+            
+            return imported_count, errors
+            
+        except Exception as e:
+            return 0, [str(e)]
 
 
 def main():
