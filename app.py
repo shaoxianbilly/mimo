@@ -643,11 +643,11 @@ input[type=text]::placeholder{color:rgba(255,255,255,0.2)}
 .stat-total .stat-num{color:#60a5fa}
 .table-wrap{overflow-x:auto;max-width:100%}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;padding:12px 14px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.3);border-bottom:1px solid rgba(255,255,255,0.06);white-space:nowrap}
-td{padding:12px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:middle;white-space:nowrap}
+th{text-align:left;padding:10px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:rgba(255,255,255,0.3);border-bottom:1px solid rgba(255,255,255,0.06);white-space:nowrap}
+td{padding:10px 8px;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:middle}
 tr{transition:background 0.15s}
 tr:hover{background:rgba(255,255,255,0.02)}
-.key-text{font-family:'SF Mono',monospace;font-size:12px;color:rgba(255,255,255,0.7)}
+.key-text{font-family:'SF Mono',monospace;font-size:11px;color:rgba(255,255,255,0.7);word-break:break-all;display:inline-block;max-width:200px}
 .badge{display:inline-block;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:600;letter-spacing:0.5px}
 .badge-available{background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.2);color:#6ee7b7}
 .badge-rate_limited{background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.2);color:#fcd34d}
