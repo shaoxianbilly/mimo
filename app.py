@@ -467,13 +467,17 @@ function doUpdate() {
                 showToast('Docker容器已重建，版本: ' + data.old_version + ' → ' + data.version, 'success');
             } else {
                 showToast('升级成功！版本: ' + data.old_version + ' → ' + data.version + '，正在重启...', 'success');
-                // 等待重启后刷新页面
-                setTimeout(function() {
-                    window.location.reload();
-                }, 3000);
+                setTimeout(function() { window.location.reload(); }, 3000);
             }
         } else {
-            showToast('升级失败: ' + data.error, 'error');
+            if (data.install_type === 'docker') {
+                // Docker环境，显示手动升级命令
+                var msg = data.error || '请在服务器执行以下命令升级：';
+                msg += '\n\ngit pull origin main && docker-compose restart';
+                alert(msg);
+            } else {
+                showToast('升级失败: ' + data.error, 'error');
+            }
         }
     }).catch(function() {
         hideLoading();
@@ -706,7 +710,7 @@ tr:hover{background:rgba(255,255,255,0.02)}
 <div class="container">
 <div class="header-row">
 <h1>API KEY 管理器</h1>
-<span class="version-tag" id="versionTag" onclick="checkUpdate()">v1.0.0</span>
+<span class="version-tag" id="versionTag" onclick="checkUpdate()">v1.1.1</span>
 </div>
 
 <div class="glass">
@@ -878,21 +882,38 @@ def api_check_update():
             local_version = json_mod.load(f).get('version', '0.0.0')
         
         # 从GitHub获取远程版本
-        resp = requests.get(
-            'https://raw.githubusercontent.com/shaoxianbilly/mimo/main/version.json',
-            timeout=10
-        )
-        if resp.status_code == 200:
-            remote_version = resp.json().get('version', '0.0.0')
-            has_update = remote_version > local_version
-            return jsonify({
-                "ok": True,
-                "local": local_version,
-                "remote": remote_version,
-                "has_update": has_update
-            })
-        else:
-            return jsonify({"ok": False, "error": "无法获取远程版本"})
+        try:
+            resp = requests.get(
+                'https://raw.githubusercontent.com/shaoxianbilly/mimo/main/version.json',
+                timeout=15,
+                verify=False  # 处理SSL问题
+            )
+            if resp.status_code == 200:
+                remote_version = resp.json().get('version', '0.0.0')
+                # 版本比较
+                local_parts = local_version.split('.')
+                remote_parts = remote_version.split('.')
+                has_update = False
+                for i in range(max(len(local_parts), len(remote_parts))):
+                    local_num = int(local_parts[i]) if i < len(local_parts) else 0
+                    remote_num = int(remote_parts[i]) if i < len(remote_parts) else 0
+                    if remote_num > local_num:
+                        has_update = True
+                        break
+                    elif remote_num < local_num:
+                        break
+                
+                return jsonify({
+                    "ok": True,
+                    "local": local_version,
+                    "remote": remote_version,
+                    "has_update": has_update
+                })
+            else:
+                return jsonify({"ok": True, "local": local_version, "remote": local_version, "has_update": False, "note": "无法获取远程版本"})
+        except Exception as e:
+            # 网络错误时返回本地版本，不报错
+            return jsonify({"ok": True, "local": local_version, "remote": local_version, "has_update": False, "note": "网络连接失败"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
@@ -905,7 +926,7 @@ def api_do_update():
         # 检测安装方式
         is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER') == 'true'
         
-        # 获取应用目录（当前工作目录）
+        # 获取应用目录
         app_dir = os.getcwd()
         
         # 备份当前版本
@@ -915,31 +936,29 @@ def api_do_update():
         except:
             old_version = '0.0.0'
         
-        # 拉取最新代码
-        result = subprocess.run(
-            ['git', 'pull', 'origin', 'main'],
-            capture_output=True, text=True, timeout=30,
-            cwd=app_dir
-        )
-        
-        if result.returncode == 0:
-            # 读取新版本号
-            with open('version.json', 'r') as f:
-                new_version = json_mod.load(f).get('version', 'unknown')
+        if is_docker:
+            # Docker方式：源码已挂载，只需要在宿主机执行git pull
+            # 但容器内无法直接操作宿主机，所以提示用户手动执行
+            return jsonify({
+                "ok": False,
+                "error": "Docker环境请在宿主机执行：git pull origin main && docker-compose restart",
+                "install_type": "docker",
+                "old_version": old_version
+            })
+        else:
+            # 本地方式：直接git pull
+            result = subprocess.run(
+                ['git', 'pull', 'origin', 'main'],
+                capture_output=True, text=True, timeout=30,
+                cwd=app_dir
+            )
             
-            if is_docker:
-                # Docker方式：重建容器
-                subprocess.run(['docker-compose', 'down'], capture_output=True)
-                subprocess.run(['docker-compose', 'up', '-d', '--build'], capture_output=True)
-                return jsonify({
-                    "ok": True,
-                    "version": new_version,
-                    "old_version": old_version,
-                    "message": "Docker容器已重建",
-                    "install_type": "docker"
-                })
-            else:
-                # 本地方式：自动重启
+            if result.returncode == 0:
+                # 读取新版本号
+                with open('version.json', 'r') as f:
+                    new_version = json_mod.load(f).get('version', 'unknown')
+                
+                # 自动重启
                 def restart_delayed():
                     import time
                     time.sleep(2)
@@ -953,11 +972,11 @@ def api_do_update():
                     "message": "代码已更新，正在重启...",
                     "install_type": "local"
                 })
-        else:
-            return jsonify({
-                "ok": False,
-                "error": result.stderr or "git pull失败"
-            })
+            else:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Git pull失败: {result.stderr or result.stdout}"
+                })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

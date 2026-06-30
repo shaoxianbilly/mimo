@@ -8,4 +8,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./api_keys.json:/app/api_keys.json
+      - ./app.py:/app/app.py
+      - ./api_validator.py:/app/api_validator.py
+      - ./version.json:/app/version.json
+      - ./config.json:/app/config.json
     restart: unless-stopped

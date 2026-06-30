@@ -596,3 +596,52 @@
 [2026-06-29 18:17:59] [INFO] Waiting for MCP client connection... | {"module":"Main","service":"wps-mcp"}
 [2026-06-29 18:17:59] [INFO] Returning 33 tools | {"module":"McpServer","service":"wps-mcp"}
 [2026-06-29 18:22:33] [INFO] Received SIGINT, shutting down gracefully... | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] ToolRegistry initialized | {"module":"ToolRegistry","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] WPS Client initialized | {"service":"wps-mcp","method":"HTTP (Mac Addon)","platform":"darwin"}
+[2026-06-30 10:53:29] [INFO] ================================================== | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] WPS Office MCP Server | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] 老王出品，必属精品 | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] ================================================== | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] MCP Server created | {"module":"McpServer","service":"wps-mcp","name":"wps-office-mcp","version":"1.0.0"}
+[2026-06-30 10:53:29] [INFO] Starting MCP Server... | {"module":"McpServer","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Registering built-in tools | {"module":"McpServer","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_check_connection | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_get_active_document | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_insert_text | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_get_active_workbook | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_get_cell_value | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_set_cell_value | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_get_active_presentation | {"module":"ToolRegistry","service":"wps-mcp","category":"presentation"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_execute_method | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_cache_data | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_get_cached_data | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_list_cache | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_clear_cache | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Registered 12 built-in tools | {"module":"McpServer","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_set_formula | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_generate_formula | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_diagnose_formula | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_read_range | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_write_range | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_clean_data | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_remove_duplicates | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_create_pivot_table | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_update_pivot_table | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_create_chart | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_excel_update_chart | {"module":"ToolRegistry","service":"wps-mcp","category":"spreadsheet"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_word_apply_style | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_word_set_font | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_word_generate_toc | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_word_insert_text | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_word_find_replace | {"module":"ToolRegistry","service":"wps-mcp","category":"document"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_ppt_add_slide | {"module":"ToolRegistry","service":"wps-mcp","category":"presentation"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_ppt_beautify | {"module":"ToolRegistry","service":"wps-mcp","category":"presentation"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_ppt_unify_font | {"module":"ToolRegistry","service":"wps-mcp","category":"presentation"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_convert_to_pdf | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Tool registered: wps_convert_format | {"module":"ToolRegistry","service":"wps-mcp","category":"common"}
+[2026-06-30 10:53:29] [INFO] Batch registered 21 tools | {"module":"ToolRegistry","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Registered 21 professional tools (Excel/Word/PPT) | {"module":"McpServer","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] MCP Server started successfully | {"module":"McpServer","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Server is running | {"module":"Main","service":"wps-mcp","running":true,"toolCount":33}
+[2026-06-30 10:53:29] [INFO] Waiting for MCP client connection... | {"module":"Main","service":"wps-mcp"}
+[2026-06-30 10:53:29] [INFO] Returning 33 tools | {"module":"McpServer","service":"wps-mcp"}
